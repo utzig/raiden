@@ -1,7 +1,14 @@
+# -*- coding: utf8 -*-
 import random
+
+from ethereum import slogging
+
 from messages import Transfer, MediatedTransfer, LockedTransfer, SecretRequest
 from tasks import Task, TransferTask, ForwardSecretTask
 from utils import sha3
+
+
+log = slogging.get_logger('transfermanager')
 
 
 class TransferManager(object):
@@ -58,7 +65,8 @@ class TransferManager(object):
 
     def on_mediatedtransfer(self, transfer):
         assert isinstance(transfer, MediatedTransfer)
-        print "ON MEDIATED TRANSFER", self.raiden
+        log.info("ON MEDIATED TRANSFER", rainde=self.raiden)
+
         # apply to channel
         channel = self.assetmanager.channels[transfer.sender]
         channel.register_transfer(transfer)
