@@ -10,11 +10,11 @@ contract Registry {
     /// @dev Add a new ChannelManagerContract to channelManagerContracts if assetAddress 
     /// does not already exist.
     /// @param assetAddress (address) the address of the asset
-    /// @return nothing, but updates the collection of ChannelManagerContracts.
-    function addAsset(address assetAddress) {
+    /// @return c (channelManagerContract) the address of the created channelManagerContract.
+    function addAsset(address assetAddress) returns (ChannelManagerContract c) {
         // only allow unique addresses
         if (IterableMappingCMC.contains(data, assetAddress)) throw;
-        ChannelManagerContract c = new ChannelManagerContract(assetAddress);
+        c = new ChannelManagerContract(assetAddress);
         IterableMappingCMC.insert(data, assetAddress, c);
     }
 
@@ -23,13 +23,15 @@ contract Registry {
     /// of the given assetAddress.
     /// @dev Get the ChannelManagerContract of a given assetAddress.
     /// @param assetAddress (address) the asset address.
-    /// @return asAdr (address) the address belonging of an assetAddress.
-    function channelManagerByAsset(address assetAddress) returns (address asAdr) {
+    /// @return contractAddr (address) the address of channelManagerContract.
+    /// @return assetAddr (address) the address of asset.
+    function channelManagerByAsset(address assetAddress) returns (address contractAddr, address assetAddr) {
         // if assetAddress does not exist, throw
         if (IterableMappingCMC.contains(data, assetAddress) == false) throw;
         uint index = IterableMappingCMC.atIndex(data, assetAddress);
         var(key, value) = IterableMappingCMC.iterate_get(data, index - 1);
-        asAdr = value.assetAddress();
+        contractAddr = value;
+        assetAddr = value.assetAddress();
     }
 
 

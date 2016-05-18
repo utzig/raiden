@@ -101,9 +101,9 @@ contract ChannelManagerContract {
     /// @dev Create a new channel between two parties
     /// @param partner (address) address of one partner
     /// @return channel (NettingContract) the NettingContract of the two parties.
-    function newChannel(address partner) returns (NettingContract c){
+    function newChannel(address partner, uint lockedTime) returns (NettingContract c){
         bytes32 k = key(msg.sender, partner);
-        c = new NettingContract(assetAddress, msg.sender, partner);
+        c = new NettingContract(assetAddress, msg.sender, partner, lockedTime);
         add(k, c);
         ChannelNew(partner); //Triggers event
     }
