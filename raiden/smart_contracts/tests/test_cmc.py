@@ -235,6 +235,11 @@ contract ChannelManagerContract {
         }
     }
 
+    /// @notice numberOfItems(address) to get the number of items channels that a given address 
+    /// partipates in.
+    /// @dev helper function to provide the needed length of the array for nettingContractsByAddress
+    /// @param adr (address) the address to look for
+    /// @return items (uint) the number of items the address participates in
     function numberOfItems(address adr) returns (uint items) {
         items = 0;
         for (var i = IterableMappingNcc.iterate_start(data); IterableMappingNcc.iterate_valid(data, i); i = IterableMappingNcc.iterate_next(data, i)) {

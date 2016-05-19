@@ -5,8 +5,7 @@
 
 
 /// Iteratable data structure of the type [bytes32 k, NettingContract v]
-library IterableMapping
-{
+library IterableMapping {
     // Might have to define the NettingContract type here for insertion
     struct itmap {
         mapping(bytes32 => IndexValue) data;

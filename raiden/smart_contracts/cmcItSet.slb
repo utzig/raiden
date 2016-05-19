@@ -1,6 +1,5 @@
 /// Iteratable data structure of the type [address k, ChannelManagerContract v]
-library IterableMappingCMC
-{
+library IterableMappingCMC {
     // Might have to define the NettingContract type here for insertion
     struct itmap {
         mapping(address => IndexValue) data;
