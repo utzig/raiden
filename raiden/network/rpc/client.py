@@ -1,8 +1,11 @@
 # -*- coding: utf8 -*-
 import string
 import random
-from collections import defaultdict
+from collections import defaultdict, Hashable
 from itertools import count
+import functools
+import time
+import threading
 
 import rlp
 from ethereum import slogging
@@ -89,6 +92,45 @@ def make_address():
 
 def decode_topic(topic):
     return int(topic[2:], 16)
+
+
+class singleton(object):
+
+    instances = {}
+
+    def __new__(cls, *args, **kwargs):
+        if not cls in cls.instances:
+            cls.instances[cls] = object.__new__(cls, *args, **kwargs)
+        return cls.instances[cls]
+
+
+class cache_with_ttl(singleton):
+
+    def __init__(self, ttl=60):
+        # FIXME: only race free if initialized before greenlets start.
+        self.lock = threading.RLock()
+        self.cache = {}
+        self.current_timeout = {}
+        self.ttl = ttl
+
+    def __call__(self, func):
+        def wrapped_func(*args):
+            with self.lock:
+                if not isinstance(args, Hashable):
+                    value = func(*args)
+
+                # FIXME: maybe add class_name too!
+                key = (func.__name__, args)
+                if key in self.cache and time.time() < self.current_timeout[key]:
+                    value = self.cache[key]
+                else:
+                    value = func(*args)
+                    self.cache[key] = value
+                    self.current_timeout[key] = time.time() + self.ttl
+
+            return value
+
+        return wrapped_func
 
 
 class BlockChainService(object):
@@ -353,6 +395,7 @@ class ChannelManager(object):
         self.gasprice = gasprice
         self.poll_timeout = poll_timeout
 
+    @cache_with_ttl(ttl=60)
     def asset_address(self):
         """ Return the asset of this manager. """
         return address_decoder(self.proxy.tokenAddress.call())
@@ -381,6 +424,7 @@ class ChannelManager(object):
         assert len(address_decoded)
         return address_decoded
 
+    @cache_with_ttl(ttl=60)
     def channels_addresses(self):
         # for simplicity the smart contract return a shallow list where every
         # second item forms a tuple
@@ -395,6 +439,7 @@ class ChannelManager(object):
         channel_iter = iter(channel_flat)
         return zip(channel_iter, channel_iter)
 
+    @cache_with_ttl(ttl=60)
     def channels_by_participant(self, participant_address):  # pylint: disable=invalid-name
         """ Return a list of channel address that `participant_address` is a participant. """
         address_list = self.proxy.nettingContractsByAddress.call(
