@@ -13,6 +13,8 @@ from raiden.messages import Ack, SignedMessage
 from raiden.raiden_protocol import RaidenProtocol
 from raiden.utils import privtoaddr, isaddress, pex
 
+from networkx import NetworkXNoPath
+
 log = slogging.get_logger(__name__)  # pylint: disable=invalid-name
 
 DEFAULT_SETTLE_TIMEOUT = 10
@@ -304,19 +306,21 @@ class RaidenAPI(object):
         asset_address_bin = safe_address_decode(asset_address)
         target_bin = safe_address_decode(target)
 
-        asset_manager = self.raiden.get_manager_by_asset_address(asset_address_bin)
-
         if not isaddress(asset_address_bin) or asset_address_bin not in self.assets:
             raise InvalidAddress('asset address is not valid.')
 
         if not isaddress(target_bin):
             raise InvalidAddress('target address is not valid.')
 
-        if not asset_manager.has_path(self.raiden.address, target_bin):
+        asset_manager = self.raiden.get_manager_by_asset_address(asset_address_bin)
+        if len(asset_manager.partneraddress_channel) == 0:
             raise NoPathError('No path to address found')
 
-        transfer_manager = self.raiden.managers_by_asset_address[asset_address_bin].transfermanager
-        transfer_manager.transfer(amount, target_bin, callback=callback)
+        transfer_manager = asset_manager.transfermanager
+        try:
+            transfer_manager.transfer(amount, target_bin, callback=callback)
+        except NetworkXNoPath:
+            raise NoPathError('No path to address found')
 
     def close(self, asset_address, partner_address):
         """ Close a channel opened with `partner_address` for the given `asset_address`. """

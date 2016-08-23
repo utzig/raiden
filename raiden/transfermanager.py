@@ -61,6 +61,7 @@ class TransferManager(object):
 
             task.start()
             task.join()
+            task.get()  # result not relevant but re-raises exceptions
 
     def on_mediatedtransfer_message(self, transfer):
         if transfer.sender not in self.assetmanager.partneraddress_channel:
