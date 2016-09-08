@@ -216,15 +216,16 @@ def full_genesis(ctx, hosts, nodes_per_host, scenario):
     if scenario is not None:
         with open(scenario) as f:
             script = json.load(f)
-        token_groups = {asset['name']: asset['channels']
-                        for asset in script['assets']
-                        }
+        token_groups = {
+            asset['name']: asset['channels']
+            for asset in script['assets']
+        }
     else:
         # create tokens for addresses x addresses
         token_groups = {
-        account['address']: [acc['address'] for acc in accounts.values()]
-        for account in accounts.values()
-    }
+            account['address']: [acc['address'] for acc in accounts.values()]
+            for account in accounts.values()
+        }
 
     dump, blockchain_config = deploy_all(token_groups=token_groups)
 
