@@ -80,7 +80,7 @@ def deploy_all(token_groups=dict()):
 def create_and_distribute_token(state,
                                 receivers,
                                 name=None,
-                                amount_per_receiver=1000):
+                                amount_per_receiver=1000000):
     proxy = state.abi_contract(
         None,
         path=get_contract_path(TARGETS['token']),
