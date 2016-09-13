@@ -9,6 +9,7 @@ import gevent
 import click
 import json
 import time
+import random
 from ethereum import slogging
 from raiden.console import ConsoleTools
 from raiden.app import app as orig_app
