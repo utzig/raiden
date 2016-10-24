@@ -3,8 +3,8 @@ import struct
 
 from ethereum import slogging
 
-from raiden.encoding.format import buffer_for, make_field, namedbuffer, pad, BYTE
 from raiden.encoding.encoders import integer, optional_bytes
+from raiden.encoding.format import buffer_for, make_field, namedbuffer, pad, BYTE
 from raiden.encoding.signing import recover_publickey
 
 
@@ -61,6 +61,7 @@ log = slogging.get_logger(__name__)
 
 
 nonce = make_field('nonce', 8, '8s', integer(0, BYTE ** 8))
+identifier = make_field('identifier', 8, '8s', integer(0, BYTE ** 8))
 expiration = make_field('expiration', 8, '8s', integer(0, BYTE ** 8))
 
 asset = make_field('asset', 20, '20s')
@@ -73,7 +74,7 @@ locksroot = make_field('locksroot', 32, '32s')
 hashlock = make_field('hashlock', 32, '32s')
 secret = make_field('secret', 32, '32s')
 echo = make_field('echo', 32, '32s')
-transfered_amount = make_field('transfered_amount', 32, '32s', integer(0, BYTE ** 32))
+transferred_amount = make_field('transferred_amount', 32, '32s', integer(0, BYTE ** 32))
 amount = make_field('amount', 32, '32s', integer(0, BYTE ** 32))
 fee = make_field('fee', 32, '32s', integer(0, BYTE ** 32))
 
@@ -123,8 +124,9 @@ SecretRequest = namedbuffer(
     [
         cmdid(SECRETREQUEST),  # [0:1]
         pad(3),                # [1:4]
-        hashlock,              # [4:36]
-        signature,             # [36:101]
+        identifier,            # [4:12]
+        hashlock,              # [12:46]
+        signature,             # [46:111]
     ]
 )
 
@@ -133,8 +135,9 @@ Secret = namedbuffer(
     [
         cmdid(SECRET),  # [0:1]
         pad(3),         # [1:4]
-        secret,         # [4:36]
-        signature,      # [36:101]
+        identifier,     # [4:12]
+        secret,         # [12:44]
+        signature,      # [44:109]
     ]
 )
 
@@ -144,9 +147,10 @@ DirectTransfer = namedbuffer(
         cmdid(DIRECTTRANSFER),  # [0:1]
         pad(3),                 # [1:4]
         nonce,                  # [4:12]
-        asset,                  # [12:32]
-        recipient,              # [32:52]
-        transfered_amount,
+        identifier,             # [12:20]
+        asset,                  # [20:40]
+        recipient,              # [40:60]
+        transferred_amount,
         optional_locksroot,
         optional_secret,        # TODO: remove from here and decoding in the smart contract
         signature,
@@ -159,11 +163,12 @@ LockedTransfer = namedbuffer(
         cmdid(LOCKEDTRANSFER),  # [0:1]
         pad(3),                 # [1:4]
         nonce,                  # [4:12]
-        expiration,             # [12:20]
-        asset,                  # [20:40]
-        recipient,              # [40:60]
+        identifier,             # [12:20]
+        expiration,             # [20:28]
+        asset,                  # [28:48]
+        recipient,              # [48:68]
         locksroot,
-        transfered_amount,
+        transferred_amount,
         amount,
         hashlock,
         signature,
@@ -176,14 +181,15 @@ MediatedTransfer = namedbuffer(
         cmdid(MEDIATEDTRANSFER),  # [0:1]
         pad(3),                   # [1:4]
         nonce,                    # [4:12]
-        expiration,               # [12:20]
-        asset,                    # [20:40]
-        recipient,                # [40:60]
-        target,                   # [60:80]
-        initiator,                # [80:100]
+        identifier,               # [12:20]
+        expiration,               # [20:28]
+        asset,                    # [28:48]
+        recipient,                # [48:68]
+        target,                   # [68:88]
+        initiator,                # [88:108]
         locksroot,
         hashlock,
-        transfered_amount,
+        transferred_amount,
         amount,
         fee,
         signature,
@@ -196,13 +202,14 @@ RefundTransfer = namedbuffer(
         cmdid(REFUNDTRANSFER),  # [0:1]
         pad(3),                 # [1:4]
         nonce,                  # [4:12]
-        expiration,             # [12:20]
-        asset,                  # [20:40]
-        recipient,              # [40:60]
-        locksroot,
-        transfered_amount,
-        amount,
-        hashlock,
+        identifier,             # [12:20]
+        expiration,             # [20:28]
+        asset,                  # [28:48]
+        recipient,              # [48:68]
+        locksroot,              # [68:100]
+        transferred_amount,     # [100:132]
+        amount,                 # [132:164]
+        hashlock,               # [164:196]
         signature,
     ]
 )

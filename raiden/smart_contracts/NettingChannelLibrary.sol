@@ -1,3 +1,5 @@
+pragma solidity ^0.4.0;
+
 import "Token.sol";
 
 library NettingChannelLibrary {
@@ -13,7 +15,7 @@ library NettingChannelLibrary {
         address nodeAddress;
         uint256 balance;
         uint256 netted;
-        uint256 transferedAmount;
+        uint256 transferredAmount;
         uint256 amount;
         bytes merkleProof;
         bytes32 hashlock;
@@ -39,19 +41,19 @@ library NettingChannelLibrary {
     modifier notSettledButClosed(Data storage self) {
         if (self.settled > 0 || self.closed == 0)
             throw;
-        _
+        _;
     }
 
     modifier stillTimeout(Data storage self) {
         if (self.closed + self.settleTimeout < block.number)
             throw;
-        _
+        _;
     }
 
     modifier timeoutOver(Data storage self) {
         if (self.closed + self.settleTimeout > block.number)
             throw;
-        _
+        _;
     }
 
     /// @notice deposit(uint) to deposit amount to channel.
@@ -145,8 +147,6 @@ library NettingChannelLibrary {
             throw;
         }
 
-        (transfer_raw, transfer_address) = getTransferRawAddress(signed_transfer);
-
         Participant[2] storage participants = self.participants;
         Participant storage node1 = participants[0];
         Participant storage node2 = participants[1];
@@ -154,6 +154,8 @@ library NettingChannelLibrary {
         if (callerAddress != node1.nodeAddress && callerAddress != node2.nodeAddress) {
             throw;
         }
+
+        (transfer_raw, transfer_address) = getTransferRawAddress(signed_transfer);
 
         if (node1.nodeAddress == transfer_address) {
             Participant storage sender = node1;
@@ -259,7 +261,7 @@ library NettingChannelLibrary {
             nonce := mload(add(transfer_raw, 12))  // skip cmdid and padding
         }
 
-        if (nonce < sender.nonce) {
+        if (nonce < sender.nonce || nonce == sender.nonce) {
             throw;
         }
 
@@ -344,15 +346,15 @@ library NettingChannelLibrary {
         Participant storage node1 = participants[0];
         Participant storage node2 = participants[1];
 
-        node1.netted = node1.balance + node2.transferedAmount - node1.transferedAmount;
-        node2.netted = node2.balance + node1.transferedAmount - node2.transferedAmount;
+        node1.netted = node1.balance + node2.transferredAmount - node1.transferredAmount;
+        node2.netted = node2.balance + node1.transferredAmount - node2.transferredAmount;
 
-        for (k=0; k < node1.unlocked.length; k++) {
+        for (k = 0; k < node1.unlocked.length; k++) {
             node1.netted += node1.unlocked[k].amount;
             node2.netted -= node1.unlocked[k].amount;
         }
 
-        for (k=0; k < node2.unlocked.length; k++) {
+        for (k = 0; k < node2.unlocked.length; k++) {
             node2.netted += node2.unlocked[k].amount;
             node1.netted -= node2.unlocked[k].amount;
         }
@@ -407,54 +409,49 @@ library NettingChannelLibrary {
         }
     }
 
-    // notes:
-    // about the length of variable types:
-    //  - inside an assembly block a type of `bytes memory` works as a pointer to
-    //  memory, since bytes is variable size it follows the ethereum contract
-    //  abi.
-    //  - all variable length types start with a size-prefix of type uint256, so
-    //  the 256bits/32bytes represent the length of the object.
-    //  - the variable start pointing in the last byte of the length
-    // - pointer arithmetic works on a byte basis, to `add(var, 1)` will advance
-    // 1 byte.
-    // - the pointer should be at the _last_ byte of the value, mload loads
-    // values from higher-to-lower addresses
+    // NOTES about the length of variable types:
+    // - variable length types start with a size-prefix of 32bytes (uint256)
+    // - bytes is a variable length type
+    // - a variable with a bytes type will contain the address of the first data element
+    // - solidity starts indexing at 0 (so the 32th byte is at the offset 31)
+    //  ref: https://github.com/ethereum/wiki/wiki/Ethereum-Contract-ABI
 
     // TODO: use sstore instead of these temporaries
 
     function assignDirectTransfer(Participant storage participant, bytes memory message) private {
-        if (message.length != 148) {  // raw message size (without signature)
+        if (message.length != 156) {  // raw message size (without signature)
             throw;
         }
 
         uint64 nonce;
         address asset;
         address recipient;
-        uint256 transferedAmount;
+        uint256 transferredAmount;
         bytes32 locksroot;
         bytes32 secret;
 
         assembly {
             // cmdid [0:1]
             // pad [1:4]
-            nonce := mload(add(message, 12))            // nonce [4:12]
-            asset := mload(add(message, 32))            // asset [12:32]
-            recipient := mload(add(message, 52))        // recipient [32:52]
-            transferedAmount := mload(add(message, 84)) // transfered_amount [52:84]
-            locksroot := mload(add(message, 116))       // optional_locksroot [84:116]
-            secret := mload(add(message, 148))          // optional_secret [116:148]
+            nonce := mload(add(message, 12))             // nonce [4:12]
+            // identifier [12:20]
+            asset := mload(add(message, 40))             // asset [20:40]
+            recipient := mload(add(message, 60))         // recipient [40:60]
+            transferredAmount := mload(add(message, 92)) // transferred_amount [60:92]
+            locksroot := mload(add(message, 124))        // optional_locksroot [92:124]
+            secret := mload(add(message, 156))           // optional_secret [124:156]
         }
 
         participant.nonce = nonce;
         participant.asset = asset;
         participant.recipient = recipient;
-        participant.transferedAmount = transferedAmount;
+        participant.transferredAmount = transferredAmount;
         participant.locksroot = locksroot;
         participant.secret = secret;
     }
 
     function assignMediatedTransfer(Participant storage participant, bytes memory message) private {
-        if (message.length != 260) {
+        if (message.length != 268) {
             throw;
         }
 
@@ -464,23 +461,24 @@ library NettingChannelLibrary {
         address recipient;
         bytes32 locksroot;
         bytes32 hashlock;
-        uint256 transferedAmount;
+        uint256 transferredAmount;
         uint256 lockAmount;
 
         assembly {
             // cmdid [0:1]
             // pad [1:4]
-            nonce := mload(add(message, 12))        // nonce [4:12]
-            expiration := mload(add(message, 20))   // expiration [12:20]
-            asset := mload(add(message, 40))        // asset [20:40]
-            recipient := mload(add(message, 60))    // recipient [40:60]
-            // target [60:80]
-            // initiator [80:100]
-            locksroot := mload(add(message, 132))   // locksroot [100:132]
-            hashlock := mload(add(message, 164))    // hashlock [100:164]
-            transferedAmount := mload(add(message, 196)) // transfered_amount[164:196]
-            lockAmount := mload(add(message, 228))  // amount [196:228]
-            // fee := mload(add(message, 260))      // fee [228:260]
+            nonce := mload(add(message, 12))              // nonce [4:12]
+            // identifier [12:20]
+            expiration := mload(add(message, 28))         // expiration [20:28]
+            asset := mload(add(message, 48))              // asset [28:48]
+            recipient := mload(add(message, 68))          // recipient [48:68]
+            // target [68:88]
+            // initiator [88:108]
+            locksroot := mload(add(message, 140))         // locksroot [108:140]
+            hashlock := mload(add(message, 172))          // hashlock [140:172]
+            transferredAmount := mload(add(message, 204)) // transferred_amount[172:204]
+            lockAmount := mload(add(message, 236))        // amount [204:236]
+            // fee := mload(add(message, 268))            // fee [236:268]
         }
 
         participant.nonce = nonce;
@@ -489,7 +487,7 @@ library NettingChannelLibrary {
         participant.recipient = recipient;
         participant.locksroot = locksroot;
         participant.hashlock = hashlock;
-        participant.transferedAmount = transferedAmount;
+        participant.transferredAmount = transferredAmount;
         participant.amount = lockAmount;
     }
 
@@ -503,7 +501,7 @@ library NettingChannelLibrary {
         address asset;
         address recipient;
         bytes32 locksroot;
-        uint256 transferedAmount;
+        uint256 transferredAmount;
         uint256 lockAmount;
         bytes32 hashlock;
 
@@ -511,13 +509,14 @@ library NettingChannelLibrary {
             // cmdid [0:1]
             // pad [1:4]
             nonce := mload(add(message, 12))        // nonce [4:12]
-            expiration := mload(add(message, 20))   // expiration [12:20]
-            asset := mload(add(message, 40))        // asset [20:40]
-            recipient := mload(add(message, 60))    // recipient [40:60]
-            locksroot := mload(add(message, 92))    // locksroot [60:92]
-            transferedAmount := mload(add(message, 124)) // transfered_amount [92:124]
-            lockAmount := mload(add(message, 156))  // amount [124:156]
-            hashlock := mload(add(message, 188))    // hashlock [156:188]
+            // identifier [12:20]
+            expiration := mload(add(message, 28))   // expiration [20:28]
+            asset := mload(add(message, 48))        // asset [28:48]
+            recipient := mload(add(message, 68))    // recipient [48:68]
+            locksroot := mload(add(message, 92))    // locksroot [68:100]
+            transferredAmount := mload(add(message, 132)) // transferred_amount [100:132]
+            lockAmount := mload(add(message, 164))  // amount [132:164]
+            hashlock := mload(add(message, 196))    // hashlock [164:196]
         }
 
         participant.nonce = nonce;
@@ -525,7 +524,7 @@ library NettingChannelLibrary {
         participant.asset = asset;
         participant.recipient = recipient;
         participant.locksroot = locksroot;
-        participant.transferedAmount = transferedAmount;
+        participant.transferredAmount = transferredAmount;
         participant.amount = lockAmount;
         participant.hashlock = hashlock;
     }
@@ -570,10 +569,8 @@ library NettingChannelLibrary {
         }
 
         n = new bytes(end-start);
-        for ( uint i = start; i < end; i ++) { //python style slice
+        for (uint i = start; i < end; i ++) { //python style slice
             n[i-start] = a[i];
         }
     }
-
-    function () { throw; }
 }

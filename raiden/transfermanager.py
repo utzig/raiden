@@ -1,11 +1,13 @@
 # -*- coding: utf8 -*-
 import logging
 
+import gevent
+import random
 from gevent.event import AsyncResult
 from ethereum import slogging
 
 from raiden.tasks import StartMediatedTransferTask, MediateTransferTask, EndMediatedTransferTask
-from raiden.utils import pex
+from raiden.utils import pex, sha3
 
 log = slogging.get_logger(__name__)  # pylint: disable=invalid-name
 
@@ -17,7 +19,10 @@ class TransferManager(object):
         self.assetmanager = assetmanager
 
         self.transfertasks = dict()
-        self.on_task_completed_callbacks = []
+        self.endtask_transfer_mapping = dict()
+
+        self.on_task_completed_callbacks = list()
+        self.on_result_callbacks = list()
 
     def register_task_for_hashlock(self, task, hashlock):
         self.transfertasks[hashlock] = task
@@ -26,13 +31,50 @@ class TransferManager(object):
         task = self.transfertasks[hashlock]
         del self.transfertasks[hashlock]
 
+        callbacks_to_remove = list()
         for callback in self.on_task_completed_callbacks:
             result = callback(task, success)
 
             if result is True:
-                self.on_task_completed_callbacks.remove(callback)
+                callbacks_to_remove.append(callback)
 
-    def transfer_async(self, amount, target, callback=None):
+        for callback in callbacks_to_remove:
+            self.on_task_completed_callbacks.remove(callback)
+
+        if task in self.endtask_transfer_mapping:
+            transfer = self.endtask_transfer_mapping[task]
+            for callback in self.on_result_callbacks:
+                gevent.spawn(
+                    callback(
+                        transfer.asset,
+                        transfer.recipient,
+                        transfer.initiator,
+                        transfer.transferred_amount,
+                        hashlock
+                    )
+                )
+            del self.endtask_transfer_mapping[task]
+
+    def register_callback_for_result(self, callback):
+        self.on_result_callbacks.append(callback)
+
+    def create_default_identifier(self, target):
+        """
+        The default message identifier value is the first 8 bytes of the sha3 of:
+            - Our Address
+            - Our target address
+            - The asset address
+            - A random 8 byte number for uniqueness
+        """
+        hash = sha3("{}{}{}{}".format(
+            self.assetmanager.raiden.address,
+            target,
+            self.assetmanager.asset_address,
+            random.randint(0, 18446744073709551614L)
+        ))
+        return int(hash[0:8].encode('hex'), 16)
+
+    def transfer_async(self, amount, target, identifier=None, callback=None):
         """ Transfer `amount` between this node and `target`.
 
         This method will start a asyncronous transfer, the transfer might fail
@@ -43,11 +85,20 @@ class TransferManager(object):
             timeout.
         """
 
+        # Create a default identifier value
+        if not identifier:
+            identifier = self.create_default_identifier(target)
+
         if target in self.assetmanager.partneraddress_channel:
             channel = self.assetmanager.partneraddress_channel[target]
-            direct_transfer = channel.create_directtransfer(amount)
+            direct_transfer = channel.create_directtransfer(
+                amount,
+                identifier,
+            )
             self.assetmanager.raiden.sign(direct_transfer)
-            channel.register_transfer(direct_transfer, callback=callback)
+            channel.register_transfer(direct_transfer)
+            if callback:
+                channel.on_task_completed_callbacks.append(callback)
 
             return self.assetmanager.raiden.protocol.send_async(
                 target,
@@ -59,6 +110,7 @@ class TransferManager(object):
             task = StartMediatedTransferTask(
                 self,
                 amount,
+                identifier,
                 target,
                 result,
             )

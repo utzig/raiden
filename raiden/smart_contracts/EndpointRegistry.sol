@@ -3,6 +3,8 @@ This contract is a registry which maps the Ethereum Address to their endpoint i.
 The Ethereum address registers his address in this registry.
 */
 
+pragma solidity ^0.4.0;
+
 contract EndpointRegistry{
     event AddressRegistered(address indexed eth_address, string socket);
 
@@ -15,10 +17,10 @@ contract EndpointRegistry{
 
     modifier noEmptyString(string str)
     {
-        if( equals(str, "") == true) {
+        if (equals(str, "") == true) {
             throw;
         }
-        _
+        _;
     }
 
     /*
@@ -31,7 +33,7 @@ contract EndpointRegistry{
         string old_socket = addressToSocket[msg.sender];
 
         // Compare if the new socket matches the old one, if it does just return
-        if(equals(old_socket, socket)) {
+        if (equals(old_socket, socket)) {
             return;
         }
 
@@ -66,7 +68,7 @@ contract EndpointRegistry{
 
     function equals(string a, string b) internal constant returns (bool result)
     {
-        if(sha3(a) == sha3(b)) {
+        if (sha3(a) == sha3(b)) {
             return true;
         }
 

@@ -1,6 +1,6 @@
 # -*- coding: utf8 -*-
 import logging
-from collections import defaultdict, namedtuple
+from collections import namedtuple
 from itertools import chain
 
 import gevent
@@ -246,6 +246,7 @@ class BalanceProof(object):
         lock_encoded = bytes(lock.as_bytes)
         lock_hash = sha3(lock_encoded)
         merkle_proof = [lock_hash]
+        # Why is the return value not used here?
         merkleroot(merkletree, merkle_proof)
 
         return UnlockProof(
@@ -266,8 +267,8 @@ class ChannelEndState(object):
         self.contract_balance = participant_balance
         self.address = participant_address
 
-        # amount of asset transfered and unlocked
-        self.transfered_amount = 0
+        # amount of asset transferred and unlocked
+        self.transferred_amount = 0
 
         # sequential nonce, current value has not been used.
         # 0 is used in the netting contract to represent the lack of a
@@ -275,7 +276,7 @@ class ChannelEndState(object):
         self.nonce = 1
 
         # contains the last known message with a valid signature and
-        # transfered_amount, the secrets revealed since that transfer, and the
+        # transferred_amount, the secrets revealed since that transfer, and the
         # pending locks
         self.balance_proof = BalanceProof()
 
@@ -293,10 +294,10 @@ class ChannelEndState(object):
 
     def balance(self, other):
         """ Return the current available balance of the participant. """
-        return self.contract_balance - self.transfered_amount + other.transfered_amount
+        return self.contract_balance - self.transferred_amount + other.transferred_amount
 
     def distributable(self, other):
-        """ Return the available amount of the asset that can be transfered in
+        """ Return the available amount of the asset that can be transferred in
         the channel.
         """
         return self.balance(other) - other.locked()
@@ -373,7 +374,7 @@ class ChannelEndState(object):
         # Start of the critical read/write section
         lock = self.balance_proof.claim_lock_by_secret(secret)
         amount = lock.amount
-        partner.transfered_amount += amount
+        partner.transferred_amount += amount
         # end of the critical read/write section
 
 
@@ -499,7 +500,8 @@ class Channel(object):
 
         self.received_transfers = []
         self.sent_transfers = []  #: transfers that were sent, required for settling
-        self.transfer_callbacks = defaultdict(list)  # mapping of transfer to callback list
+        self.on_withdrawable_callbacks = list()  # mapping of transfer to callback list
+        self.on_task_completed_callbacks = list()  # XXX naming
 
     @property
     def isopen(self):
@@ -511,9 +513,9 @@ class Channel(object):
         return self.our_state.contract_balance
 
     @property
-    def transfered_amount(self):
-        """ Return how much we transfered to partner. """
-        return self.our_state.transfered_amount
+    def transferred_amount(self):
+        """ Return how much we transferred to partner. """
+        return self.our_state.transferred_amount
 
     @property
     def balance(self):
@@ -544,6 +546,9 @@ class Channel(object):
     @property
     def outstanding(self):
         return self.our_state.locked()
+
+    def register_withdrawable_callback(self, callback):
+        self.on_withdrawable_callbacks.append(callback)
 
     def channel_closed(self, block_number):
         self.external_state.register_block_alarm(self.blockalarm_for_settle)
@@ -576,12 +581,6 @@ class Channel(object):
             gevent.spawn(_settle)  # don't block the alarm
             return REMOVE_CALLBACK
 
-    def handle_callbacks(self, transfer):
-        for callback in self.transfer_callbacks[transfer]:
-            callback(None, True)
-
-        del self.transfer_callbacks[transfer]
-
     def get_state_for(self, node_address_bin):
         if self.our_state.address == node_address_bin:
             return self.our_state
@@ -594,7 +593,7 @@ class Channel(object):
     def register_secret(self, secret):
         """ Register a secret.
 
-        This wont claim the lock (update the transfered_amount), it will only
+        This wont claim the lock (update the transferred_amount), it will only
         save the secret in case that a proof needs to be created. This method
         can be used for any of the ends of the channel.
 
@@ -682,7 +681,7 @@ class Channel(object):
         else:
             raise ValueError('The secret doesnt unlock any hashlock')
 
-    def register_transfer(self, transfer, callback=None):
+    def register_transfer(self, transfer):
         """ Register a signed transfer, updating the channel's state accordingly. """
 
         if transfer.recipient == self.partner_state.address:
@@ -693,9 +692,6 @@ class Channel(object):
             )
 
             self.sent_transfers.append(transfer)
-
-            if callback:
-                self.transfer_callbacks[transfer].append(callback)
 
         elif transfer.recipient == self.our_state.address:
             self.register_transfer_from_to(
@@ -793,7 +789,7 @@ class Channel(object):
                 raise ValueError('Expiration smaller than the minimum required.')
 
         # only check the balance if the locksroot matched
-        if transfer.transfered_amount < from_state.transfered_amount:
+        if transfer.transferred_amount < from_state.transferred_amount:
             if log.isEnabledFor(logging.ERROR):
                 log.error(
                     'NEGATIVE TRANSFER node:%s %s > %s %s',
@@ -805,7 +801,7 @@ class Channel(object):
 
             raise ValueError('Negative transfer')
 
-        amount = transfer.transfered_amount - from_state.transfered_amount
+        amount = transfer.transferred_amount - from_state.transferred_amount
         distributable = from_state.distributable(to_state)
 
         if amount > distributable:
@@ -847,24 +843,49 @@ class Channel(object):
         if isinstance(transfer, DirectTransfer):
             to_state.register_direct_transfer(transfer)
 
-        from_state.transfered_amount = transfer.transfered_amount
+        from_state.transferred_amount = transfer.transferred_amount
         from_state.nonce += 1
+
+        if isinstance(transfer, DirectTransfer):
+            # if we are the recipient, spawn callback for incoming transfers
+            if transfer.recipient == self.our_state.address:
+                for callback in self.on_withdrawable_callbacks:
+                    gevent.spawn(
+                        callback,
+                        transfer.asset,
+                        transfer.recipient,
+                        transfer.sender,  # 'initiator' is sender here
+                        transfer.transferred_amount,
+                        None  # no hashlock in DirectTransfer
+                    )
+
+            # if we are the sender, call the 'success' callback
+            elif from_state.address == self.our_state.address:
+                callbacks_to_remove = list()
+                for callback in self.on_task_completed_callbacks:
+                    result = callback(task=None, success=True)  # XXX maybe use gevent.spawn()
+
+                    if result is True:
+                        callbacks_to_remove.append(callback)
+
+                for callback in callbacks_to_remove:
+                    self.on_task_completed_callbacks.remove(callback)
 
         if log.isEnabledFor(logging.DEBUG):
             log.debug(
                 'REGISTERED TRANSFER node:%s %s > %s '
-                'transfer:%s transfered_amount:%s nonce:%s '
+                'transfer:%s transferred_amount:%s nonce:%s '
                 'current_locksroot:%s',
                 pex(self.our_state.address),
                 pex(from_state.address),
                 pex(to_state.address),
                 repr(transfer),
-                from_state.transfered_amount,
+                from_state.transferred_amount,
                 from_state.nonce,
                 pex(to_state.balance_proof.merkleroot_for_unclaimed()),
             )
 
-    def create_directtransfer(self, amount):
+    def create_directtransfer(self, amount, identifier):
         """ Return a DirectTransfer message.
 
         This message needs to be signed and registered with the channel before
@@ -887,18 +908,19 @@ class Channel(object):
 
             raise ValueError('Insufficient funds')
 
-        transfered_amount = from_.transfered_amount + amount
+        transferred_amount = from_.transferred_amount + amount
         current_locksroot = to_.balance_proof.merkleroot_for_unclaimed()
 
         return DirectTransfer(
+            identifier=identifier,
             nonce=from_.nonce,
             asset=self.asset_address,
-            transfered_amount=transfered_amount,
+            transferred_amount=transferred_amount,
             recipient=to_.address,
             locksroot=current_locksroot,
         )
 
-    def create_lockedtransfer(self, amount, expiration, hashlock):
+    def create_lockedtransfer(self, amount, identifier, expiration, hashlock):
         """ Return a LockedTransfer message.
 
         This message needs to be signed and registered with the channel before sent.
@@ -945,19 +967,20 @@ class Channel(object):
         lock = Lock(amount, expiration, hashlock)
 
         updated_locksroot = to_.compute_merkleroot_with(include=lock)
-        transfered_amount = from_.transfered_amount
+        transferred_amount = from_.transferred_amount
 
         return LockedTransfer(
+            identifier=identifier,
             nonce=from_.nonce,
             asset=self.asset_address,
-            transfered_amount=transfered_amount,
+            transferred_amount=transferred_amount,
             recipient=to_.address,
             locksroot=updated_locksroot,
             lock=lock,
         )
 
     def create_mediatedtransfer(self, transfer_initiator, transfer_target, fee,
-                                amount, expiration, hashlock):
+                                amount, identifier, expiration, hashlock):
         """ Return a MediatedTransfer message.
 
         This message needs to be signed and registered with the channel before
@@ -965,14 +988,15 @@ class Channel(object):
 
         Args:
             transfer_initiator (address): The node that requested the transfer.
-            transfer_target (address): The node that the transfer is destinated to.
-            amount (float): How much asset is being transfered.
+            transfer_target (address): The final destination node of the transfer
+            amount (float): How much of an asset is being transfered.
             expiration (int): The maximum block number until the transfer
                 message can be received.
         """
 
         locked_transfer = self.create_lockedtransfer(
             amount,
+            identifier,
             expiration,
             hashlock,
         )
@@ -993,6 +1017,7 @@ class Channel(object):
 
         locked_transfer = self.create_lockedtransfer(
             lock.amount,
+            1,  # TODO: Perhaps add identifier in the refund transfer too?
             lock.expiration,
             lock.hashlock,
         )

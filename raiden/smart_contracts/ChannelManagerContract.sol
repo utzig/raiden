@@ -1,3 +1,5 @@
+pragma solidity ^0.4.0;
+
 import "Token.sol";
 import "ChannelManagerLibrary.sol";
 
@@ -45,7 +47,7 @@ contract ChannelManagerContract {
         result = new address[](data.all_channels.length * 2);
 
         pos = 0;
-        for (i=0; i<data.all_channels.length; i++) {
+        for (i = 0; i < data.all_channels.length; i++) {
             channel = data.all_channels[i];
 
             (participant1, , participant2, ) = NettingChannelContract(channel).addressAndBalance();
@@ -82,7 +84,7 @@ contract ChannelManagerContract {
 
         result = new address[](count);
         count -= 1;
-        for (i=0; i<data.all_channels.length; i++) {
+        for (i = 0; i < data.all_channels.length; i++) {
             channel = data.all_channels[i];
 
             (participant1, , participant2, ) = NettingChannelContract(channel).addressAndBalance();

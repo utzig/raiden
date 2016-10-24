@@ -15,8 +15,7 @@ from gevent.event import Event
 from IPython.lib.inputhook import inputhook_manager
 
 from raiden.messages import Ping
-from raiden.blockchain.abi import get_contract_path
-from raiden.utils import events
+from raiden.utils import events, get_contract_path
 
 from pyethapp.utils import bcolors as bc
 from pyethapp.console_service import GeventInputHook, SigINTHandler
@@ -281,8 +280,8 @@ class ConsoleTools(object):
         # Collect data
         stats = dict(
             transfers=dict(
-                received=[t.transfered_amount for t in channel.received_transfers],
-                sent=[t.transfered_amount for t in channel.sent_transfers],
+                received=[t.transferred_amount for t in channel.received_transfers],
+                sent=[t.transferred_amount for t in channel.sent_transfers],
             ),
             channel=(channel
                      if not pretty

@@ -53,13 +53,14 @@ def test_end_state():
     )
     lock_hash = sha3(lock.as_bytes)
 
-    transfered_amount = 0
+    transferred_amount = 0
     locksroot = state2.compute_merkleroot_with(lock)
 
     locked_transfer = LockedTransfer(
+        1,  # TODO: fill in identifier
         nonce=state1.nonce,
         asset=asset_address,
-        transfered_amount=transfered_amount,
+        transferred_amount=transferred_amount,
         recipient=state2.address,
         locksroot=locksroot,
         lock=lock,
@@ -198,7 +199,7 @@ def test_channel():
 
     assert channel.contract_balance == our_state.contract_balance
     assert channel.balance == our_state.balance(partner_state)
-    assert channel.transfered_amount == our_state.transfered_amount
+    assert channel.transferred_amount == our_state.transferred_amount
     assert channel.distributable == our_state.distributable(partner_state)
     assert channel.outstanding == our_state.locked()
     assert channel.outstanding == 0
@@ -207,19 +208,28 @@ def test_channel():
     assert channel.partner_state.locked() == 0
 
     with pytest.raises(ValueError):
-        channel.create_directtransfer(-10)
+        channel.create_directtransfer(
+            -10,
+            1  # TODO: fill in identifier
+        )
 
     with pytest.raises(ValueError):
-        channel.create_directtransfer(balance1 + 10)
+        channel.create_directtransfer(
+            balance1 + 10,
+            1  # TODO: fill in identifier
+        )
 
     amount1 = 10
-    directtransfer = channel.create_directtransfer(amount1)
+    directtransfer = channel.create_directtransfer(
+        amount1,
+        1  # TODO: fill in identifier
+    )
     directtransfer.sign(privkey1, address1)
     channel.register_transfer(directtransfer)
 
     assert channel.contract_balance == balance1
     assert channel.balance == balance1 - amount1
-    assert channel.transfered_amount == amount1
+    assert channel.transferred_amount == amount1
     assert channel.distributable == balance1 - amount1
     assert channel.outstanding == 0
     assert channel.locked == 0
@@ -236,6 +246,7 @@ def test_channel():
         address2,
         fee,
         amount2,
+        1,  # TODO: fill in identifier
         expiration,
         hashlock,
     )
@@ -245,7 +256,7 @@ def test_channel():
 
     assert channel.contract_balance == balance1
     assert channel.balance == balance1 - amount1
-    assert channel.transfered_amount == amount1
+    assert channel.transferred_amount == amount1
     assert channel.distributable == balance1 - amount1 - amount2
     assert channel.outstanding == 0
     assert channel.locked == amount2
@@ -256,7 +267,7 @@ def test_channel():
 
     assert channel.contract_balance == balance1
     assert channel.balance == balance1 - amount1 - amount2
-    assert channel.transfered_amount == amount1 + amount2
+    assert channel.transferred_amount == amount1 + amount2
     assert channel.distributable == balance1 - amount1 - amount2
     assert channel.outstanding == 0
     assert channel.locked == 0
@@ -346,6 +357,7 @@ def test_interwoven_transfers(number_of_transfers, raiden_network):  # pylint: d
     for i, (amount, secret) in enumerate(zip(transfers_amount, transfers_secret)):
         locked_transfer = channel0.create_lockedtransfer(
             amount=amount,
+            identifier=1,  # TODO: fill in identifier
             expiration=expiration,
             hashlock=sha3(secret),
         )
@@ -435,7 +447,10 @@ def test_transfer(raiden_network, assets_addresses):
 
     amount = 10
 
-    direct_transfer = channel0.create_directtransfer(amount=amount)
+    direct_transfer = channel0.create_directtransfer(
+        amount,
+        1  # TODO: fill in identifier
+    )
     app0.raiden.sign(direct_transfer)
     channel0.register_transfer(direct_transfer)
     channel1.register_transfer(direct_transfer)
@@ -474,6 +489,7 @@ def test_locked_transfer(raiden_network):
 
     locked_transfer = channel0.create_lockedtransfer(
         amount=amount,
+        identifier=1,  # TODO: fill in identifier
         expiration=expiration,
         hashlock=hashlock,
     )
@@ -524,6 +540,7 @@ def test_register_invalid_transfer(raiden_network):
 
     transfer1 = channel0.create_lockedtransfer(
         amount=amount,
+        identifier=1,  # TODO: fill in identifier
         expiration=expiration,
         hashlock=hashlock,
     )
@@ -541,9 +558,10 @@ def test_register_invalid_transfer(raiden_network):
 
     # handcrafted transfer because channel.create_transfer won't create it
     transfer2 = DirectTransfer(
+        1,  # TODO: fill in identifier
         nonce=channel0.our_state.nonce,
         asset=channel0.asset_address,
-        transfered_amount=channel1.balance + balance0 + amount,
+        transferred_amount=channel1.balance + balance0 + amount,
         recipient=channel0.partner_state.address,
         locksroot=channel0.partner_state.balance_proof.merkleroot_for_unclaimed(),
     )

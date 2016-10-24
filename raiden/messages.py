@@ -1,12 +1,13 @@
 # -*- coding: utf8 -*-
 from ethereum.slogging import getLogger
+from ethereum.utils import big_endian_to_int
 
 from raiden.encoding import messages, signing
 from raiden.encoding.format import buffer_for
 from raiden.encoding.messages import LocksrootRejected as LocksrootRejectedNamedbuffer
 from raiden.encoding.messages import secret as secret_field
 from raiden.encoding.messages import signature as signature_field
-from raiden.utils import publickey_to_address, sha3, ishash, big_endian_to_int, pex
+from raiden.utils import publickey_to_address, sha3, ishash, pex
 
 __all__ = (
     'Ack',
@@ -220,8 +221,9 @@ class SecretRequest(SignedMessage):
     """ Requests the secret which unlocks a hashlock. """
     cmdid = messages.SECRETREQUEST
 
-    def __init__(self, hashlock):
+    def __init__(self, identifier, hashlock):
         super(SecretRequest, self).__init__()
+        self.identifier = identifier
         self.hashlock = hashlock
 
     def __repr__(self):
@@ -232,11 +234,12 @@ class SecretRequest(SignedMessage):
 
     @staticmethod
     def unpack(packed):
-        secret_request = SecretRequest(packed.hashlock)
+        secret_request = SecretRequest(packed.identifier, packed.hashlock)
         secret_request.signature = packed.signature
         return secret_request
 
     def pack(self, packed):
+        packed.identifier = self.identifier
         packed.hashlock = self.hashlock
         packed.signature = self.signature
 
@@ -245,8 +248,9 @@ class Secret(SignedMessage):
     """ Provides the secret to a hashlock. """
     cmdid = messages.SECRET
 
-    def __init__(self, secret):
+    def __init__(self, identifier, secret):
         super(Secret, self).__init__()
+        self.identifier = identifier
         self.secret = secret
         self._hashlock = None
 
@@ -265,55 +269,59 @@ class Secret(SignedMessage):
 
     @staticmethod
     def unpack(packed):
-        secret = Secret(packed.secret)
+        secret = Secret(packed.identifier, packed.secret)
         secret.signature = packed.signature
         return secret
 
     def pack(self, packed):
+        packed.identifier = self.identifier
         packed.secret = self.secret
         packed.signature = self.signature
 
 
 class DirectTransfer(SignedMessage):
-    """ An direct asset exchange, used when both participants have a previously
-    openned channel.
+    """ A direct asset exchange, used when both participants have a previously
+    opened channel.
 
     Signs the unidirectional settled `balance` of `asset` to `recipient` plus
     locked transfers.
 
     Settled refers to the inclusion of formerly locked amounts.
-    Locked amounts are not included in the balance yet, but represented by the `locksroot`.
+    Locked amounts are not included in the balance yet, but represented
+    by the `locksroot`.
 
     Args:
         nonce: A sequential nonce, used to protected against replay attacks and
             to give a total order for the messages. This nonce is per
             participant, not shared.
         asset: The address of the asset being exchanged in the channel.
-        transfered_amount: The total amount of asset that wast transfered to
-            the channel partner. This value is monotonicly increasing and can
+        transferred_amount: The total amount of asset that was transfered to
+            the channel partner. This value is monotonically increasing and can
             be larger than a channels deposit, since the channels are
             bidirecional.
-        recipient: The address of raiden node participating in the channel.
+        recipient: The address of the raiden node participating in the channel.
         locksroot: The root of a merkle tree which records the current
             outstanding locks.
     """
 
     cmdid = messages.DIRECTTRANSFER
 
-    def __init__(self, nonce, asset, transfered_amount, recipient, locksroot):
+    def __init__(self, identifier, nonce, asset, transferred_amount, recipient, locksroot):
         super(DirectTransfer, self).__init__()
+        self.identifier = identifier
         self.nonce = nonce
         self.asset = asset
-        self.transfered_amount = transfered_amount  #: total amount of asset sent to partner
+        self.transferred_amount = transferred_amount  #: total amount of asset sent to partner
         self.recipient = recipient  #: partner's address
         self.locksroot = locksroot  #: the merkle root that represent all pending locked transfers
 
     @staticmethod
     def unpack(packed):
         transfer = DirectTransfer(
+            packed.identifier,
             packed.nonce,
             packed.asset,
-            packed.transfered_amount,
+            packed.transferred_amount,
             packed.recipient,
             packed.locksroot,
         )
@@ -322,9 +330,10 @@ class DirectTransfer(SignedMessage):
         return transfer
 
     def pack(self, packed):
+        packed.identifier = self.identifier
         packed.nonce = self.nonce
         packed.asset = self.asset
-        packed.transfered_amount = self.transfered_amount
+        packed.transferred_amount = self.transferred_amount
         packed.recipient = self.recipient
         packed.locksroot = self.locksroot
         packed.signature = self.signature
@@ -384,24 +393,25 @@ class LockedTransfer(SignedMessage):
     """ A transfer which signs that the partner can claim `locked_amount` if
     she knows the secret to `hashlock`.
 
-    The asset amount is implicitely represented in the `locksroot` and won't be
-    reflected in the `transfered_amount` until the secret is revealed.
+    The asset amount is implicitly represented in the `locksroot` and won't be
+    reflected in the `transferred_amount` until the secret is revealed.
 
     This signs Carol, that she can claim locked_amount from Bob if she knows the secret to hashlock
 
     If the secret to hashlock becomes public, but Bob fails to sign Carol a netted balance,
     with an updated rootlock which reflects the deletion of the lock, then
-        Carol can request settlement on chain by providing:
-            any signed [nonce, asset, balance, recipient, locksroot, ...]
-            along a merkle proof from locksroot to the not yet netted formerly locked amount
+    Carol can request settlement on chain by providing:
+        any signed [nonce, asset, balance, recipient, locksroot, ...]
+        along a merkle proof from locksroot to the not yet netted formerly locked amount
     """
     cmdid = messages.LOCKEDTRANSFER
 
-    def __init__(self, nonce, asset, transfered_amount, recipient, locksroot, lock):
+    def __init__(self, identifier, nonce, asset, transferred_amount, recipient, locksroot, lock):
         super(LockedTransfer, self).__init__()
+        self.identifier = identifier
         self.nonce = nonce
         self.asset = asset
-        self.transfered_amount = transfered_amount
+        self.transferred_amount = transferred_amount
         self.recipient = recipient
         self.locksroot = locksroot
 
@@ -409,9 +419,10 @@ class LockedTransfer(SignedMessage):
 
     def to_mediatedtransfer(self, target, initiator='', fee=0):
         return MediatedTransfer(
+            self.identifier,
             self.nonce,
             self.asset,
-            self.transfered_amount,
+            self.transferred_amount,
             self.recipient,
             self.locksroot,
             self.lock,
@@ -422,9 +433,10 @@ class LockedTransfer(SignedMessage):
 
     def to_refundtransfer(self):
         return RefundTransfer(
+            self.identifier,
             self.nonce,
             self.asset,
-            self.transfered_amount,
+            self.transferred_amount,
             self.recipient,
             self.locksroot,
             self.lock,
@@ -439,9 +451,10 @@ class LockedTransfer(SignedMessage):
         )
 
         locked_transfer = LockedTransfer(
+            packed.identifier,
             packed.nonce,
             packed.asset,
-            packed.transfered_amount,
+            packed.transferred_amount,
             packed.recipient,
             packed.locksroot,
             lock,
@@ -450,9 +463,10 @@ class LockedTransfer(SignedMessage):
         return locked_transfer
 
     def pack(self, packed):
+        packed.identifier = self.identifier
         packed.nonce = self.nonce
         packed.asset = self.asset
-        packed.transfered_amount = self.transfered_amount
+        packed.transferred_amount = self.transferred_amount
         packed.recipient = self.recipient
         packed.locksroot = self.locksroot
 
@@ -467,8 +481,8 @@ class LockedTransfer(SignedMessage):
 class MediatedTransfer(LockedTransfer):
 
     """
-    A MediatedTransfer has a `target` address to which a chain of transfers shall be established.
-    Here the `haslock` is mandatory.
+    A MediatedTransfer has a `target` address to which a chain of transfers shall
+    be established. Here the `haslock` is mandatory.
 
     `fee` is the remaining fee a recipient shall use to complete the mediated transfer.
     The recipient can deduct his own fee from the amount and lower `fee` to the remaining fee.
@@ -476,7 +490,7 @@ class MediatedTransfer(LockedTransfer):
     it can deduct a too high fee, but this would render completion of the transfer unlikely.
 
     The initiator of a mediated transfer will calculate fees based on the likely fees along the
-    path. Note, it can not determin the path, as it does not know which nodes are available.
+    path. Note, it can not determine the path, as it does not know which nodes are available.
 
     Initial `amount` should be expected received amount + fees.
 
@@ -487,8 +501,8 @@ class MediatedTransfer(LockedTransfer):
 
     cmdid = messages.MEDIATEDTRANSFER
 
-    def __init__(self, nonce, asset, transfered_amount, recipient, locksroot,
-                 lock, target, initiator, fee=0):
+    def __init__(self, identifier, nonce, asset, transferred_amount, recipient,
+                 locksroot, lock, target, initiator, fee=0):
 
         if nonce > 2 ** 64:
             raise ValueError('nonce is too large')
@@ -496,13 +510,14 @@ class MediatedTransfer(LockedTransfer):
         if fee > 2 ** 256:
             raise ValueError('fee is too large')
 
-        if transfered_amount > 2 ** 256:
-            raise ValueError('transfered_amount is too large')
+        if transferred_amount > 2 ** 256:
+            raise ValueError('transferred_amount is too large')
 
         super(MediatedTransfer, self).__init__(
+            identifier,
             nonce,
             asset,
-            transfered_amount,
+            transferred_amount,
             recipient,
             locksroot,
             lock,
@@ -513,11 +528,11 @@ class MediatedTransfer(LockedTransfer):
         self.initiator = initiator
 
     def __repr__(self):
-        return '<{} [asset:{} nonce:{} transfered_amount:{} lock_amount:{} hash:{} locksroot:{}]>'.format(
+        return '<{} [asset:{} nonce:{} transferred_amount:{} lock_amount:{} hash:{} locksroot:{}]>'.format(
             self.__class__.__name__,
             pex(self.asset),
             self.nonce,
-            self.transfered_amount,
+            self.transferred_amount,
             self.lock.amount,
             pex(self.hash),
             pex(self.locksroot),
@@ -532,9 +547,10 @@ class MediatedTransfer(LockedTransfer):
         )
 
         mediated_transfer = MediatedTransfer(
+            packed.identifier,
             packed.nonce,
             packed.asset,
-            packed.transfered_amount,
+            packed.transferred_amount,
             packed.recipient,
             packed.locksroot,
             lock,
@@ -546,9 +562,10 @@ class MediatedTransfer(LockedTransfer):
         return mediated_transfer
 
     def pack(self, packed):
+        packed.identifier = self.identifier
         packed.nonce = self.nonce
         packed.asset = self.asset
-        packed.transfered_amount = self.transfered_amount
+        packed.transferred_amount = self.transferred_amount
         packed.recipient = self.recipient
         packed.locksroot = self.locksroot
         packed.target = self.target
@@ -564,8 +581,9 @@ class MediatedTransfer(LockedTransfer):
 
 
 class RefundTransfer(LockedTransfer):
-    """ Indicates that no route is available and transfer the amount back to
-    the previous node, allowing she to try another path to complete the
+    """
+    Indicates that no route is available and transfers the amount back to
+    the previous node, allowing it to try another path to complete the
     transfer.
     """
     cmdid = messages.REFUNDTRANSFER
@@ -579,9 +597,10 @@ class RefundTransfer(LockedTransfer):
         )
 
         locked_transfer = RefundTransfer(
+            packed.identifier,
             packed.nonce,
             packed.asset,
-            packed.transfered_amount,
+            packed.transferred_amount,
             packed.recipient,
             packed.locksroot,
             lock,
@@ -592,7 +611,7 @@ class RefundTransfer(LockedTransfer):
     def pack(self, packed):
         packed.nonce = self.nonce
         packed.asset = self.asset
-        packed.transfered_amount = self.transfered_amount
+        packed.transferred_amount = self.transferred_amount
         packed.recipient = self.recipient
         packed.locksroot = self.locksroot
 
@@ -605,13 +624,14 @@ class RefundTransfer(LockedTransfer):
 
 
 class TransferTimeout(SignedMessage):
-    """ Indicates that timeout happened during mediated transfer.
+    """
+    Indicates a timeout happened during a mediated transfer.
 
     This message is used when a node in a mediated chain doesn't consider any
-    of it's following nodes available. If node `A` is trying to send a transfer
-    to `D` throught `B1`, if `B1` consider all candidates for `c` unavailable
-    it will send a TransferTimeout back to `A`. `A` can try all other
-    candidates for `b` until it considers all it's paths unavailable.
+    of its following nodes available. If node `A` is trying to send a transfer
+    to `C` through `B` and `B` considers all candidates for `C` unavailable
+    it will send a TransferTimeout back to `A`. `A` can then try all other
+    candidates for `C` until it considers all it's paths unavailable.
     """
     cmdid = messages.TRANSFERTIMEOUT
 

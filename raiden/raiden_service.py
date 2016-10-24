@@ -1,5 +1,6 @@
 # -*- coding: utf8 -*-
 import logging
+import itertools
 
 from ethereum import slogging
 from ethereum.abi import ContractTranslator
@@ -315,14 +316,14 @@ class RaidenAPI(object):
 
         return netting_channel
 
-    def transfer_and_wait(self, asset_address, amount, target, callback=None, timeout=None):
+    def transfer_and_wait(self, asset_address, amount, target, identifier=None, callback=None, timeout=None):
         """ Do a transfer with `target` with the given `amount` of `asset_address`. """
-        async_result = self.transfer_async(asset_address, amount, target, callback)
+        async_result = self.transfer_async(asset_address, amount, target, identifier, callback)
         return async_result.wait(timeout=timeout)
 
     transfer = transfer_and_wait  # expose a synchronous interface to the user
 
-    def transfer_async(self, asset_address, amount, target, callback=None):
+    def transfer_async(self, asset_address, amount, target, identifier=None, callback=None):
         if not isinstance(amount, (int, long)):
             raise InvalidAmount('Amount not a number')
 
@@ -344,7 +345,7 @@ class RaidenAPI(object):
             raise NoPathError('No path to address found')
 
         transfer_manager = self.raiden.managers_by_asset_address[asset_address_bin].transfermanager
-        async_result = transfer_manager.transfer_async(amount, target_bin, callback=callback)
+        async_result = transfer_manager.transfer_async(amount, target_bin, identifier=identifier, callback=callback)
         return async_result
 
     def close(self, asset_address, partner_address):
@@ -402,6 +403,23 @@ class RaidenAPI(object):
 
         netting_channel.settle()
         return netting_channel
+
+    def register_on_withdrawable_callbacks(self, callbacks):
+        # wrap in list if only one callback
+        try:
+            iter(callbacks)
+        except TypeError:
+            callbacks = [callbacks]
+        all_asset_managers = self.raiden.managers_by_asset_address.values()
+        # get all channel the node participates in:
+        all_channel = [am.partneraddress_channel.values() for am in all_asset_managers]
+        # and flatten the list:
+        all_channel = list(itertools.chain.from_iterable(all_channel))
+        for callback in callbacks:
+            for channel in all_channel:
+                channel.register_withdrawable_callback(callback)
+            for am in all_asset_managers:
+                am.transfermanager.register_callback_for_result(callback)
 
 
 class RaidenMessageHandler(object):
