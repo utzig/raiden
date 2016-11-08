@@ -55,6 +55,10 @@ log = slogging.get_logger(__name__)  # pylint: disable=invalid-name
         '--stage_prefix',
         type=str
         )
+@click.option(
+        '--results_filename',
+        type=str
+        )
 @click.command()
 def run(privatekey,
         registry_contract_address,
@@ -63,7 +67,8 @@ def run(privatekey,
         logging,
         logfile,
         scenario,
-        stage_prefix):
+        stage_prefix,
+        results_filename):
 
     # TODO: only enabled logging on "initiators"
     slogging.configure(logging, log_file=logfile)
@@ -233,7 +238,7 @@ def run(privatekey,
 
         log.warning("Results: {}".format(results))
 
-        with open('{}.json'.format(stage_prefix), 'w') as fp:
+        with open(results_filename, 'w') as fp:
             json.dump(results, fp, indent=2)
 
         open('{}.stage3'.format(stage_prefix), 'a').close()
